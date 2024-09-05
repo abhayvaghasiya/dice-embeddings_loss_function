@@ -10,6 +10,23 @@ class BaseKGELightning(pl.LightningModule):
         super().__init__(*args, **kwargs)
         self.training_step_outputs = []
 
+        # Directly set the score file path
+        self.score_file_path = '/Users/abhayvaghasiya/Desktop/WORK/UMLS_new_train/scores_modified_2.txt'
+
+        # Load the scores from the file
+        self.scores = self.load_scores(self.score_file_path)
+
+    def load_scores(self, score_file_path):
+        with open(score_file_path, 'r') as file:
+            scores = [float(line.strip()) for line in file.readlines()]
+        return scores
+
+    def get_score(self, index):
+        if index < len(self.scores):
+            return self.scores[index]
+        else:
+            raise IndexError("Index out of range for score lookup.")
+
     def mem_of_model(self) -> Dict:
         """ Size of model in MB and number of params"""
         # https://discuss.pytorch.org/t/finding-model-size/130275/2
@@ -22,9 +39,13 @@ class BaseKGELightning(pl.LightningModule):
         return {'EstimatedSizeMB': (num_params + buffer_size) / 1024 ** 2, 'NumParam': num_params}
 
     def training_step(self, batch, batch_idx=None):
-        x_batch, y_batch = batch
+        x_batch, y_batch = batch  # Unpack the batch assuming it contains x_batch and y_batch
+        
+        # Generate tuple indices based on batch index and batch size
+        tuple_indices = torch.arange(batch_idx * len(x_batch), (batch_idx + 1) * len(x_batch)).to(x_batch.device)
+        
         yhat_batch = self.forward(x_batch)
-        loss_batch = self.loss_function(yhat_batch, y_batch)
+        loss_batch = self.loss_function(yhat_batch, y_batch, tuple_indices)
         self.training_step_outputs.append(loss_batch.item())
         self.log("loss",
                  value=loss_batch,
@@ -35,19 +56,35 @@ class BaseKGELightning(pl.LightningModule):
                  logger=False)
         return loss_batch
 
-    def loss_function(self, yhat_batch: torch.FloatTensor, y_batch: torch.FloatTensor):
-        """
+    def loss_function(self, yhat_batch: torch.FloatTensor, y_batch: torch.FloatTensor, tuple_indices: torch.LongTensor):
+        criterion = torch.nn.BCEWithLogitsLoss(reduction='none')
+        loss = criterion(yhat_batch, y_batch)
 
-        Parameters
-        ----------
-        yhat_batch
-        y_batch
+        # Get weights based on the score file using the tuple indices
+        weights_positive = torch.FloatTensor([self.get_score(idx.item()) for idx in tuple_indices]).to(y_batch.device)
+        
+        # Ensure the shape matches y_batch
+        # If y_batch is a 2D tensor, reshape weights_positive accordingly
+        if len(y_batch.shape) > 1:
+            weights_positive = weights_positive.unsqueeze(1).expand_as(y_batch)
 
-        Returns
-        -------
+        # Calculate weights for negative samples as 1 - positive weights
+        weights_negative = 1 - weights_positive
 
-        """
-        return self.loss(yhat_batch, y_batch)
+        # Apply weights based on whether the sample is positive or negative
+        sample_weights = torch.where(
+            y_batch == 1,
+            weights_positive,
+            weights_negative
+        )
+
+        # Apply the weights to the loss
+        weighted_loss = sample_weights * loss
+        
+        # Calculate the mean of the weighted loss
+        mean_weighted_loss = weighted_loss.mean()
+
+        return mean_weighted_loss
 
     def on_train_epoch_end(self, *args, **kwargs):
         if len(args) >= 1:
@@ -57,6 +94,7 @@ class BaseKGELightning(pl.LightningModule):
 
         self.loss_history.append(sum(self.training_step_outputs) / len(self.training_step_outputs))
         self.training_step_outputs.clear()
+
 
     def test_epoch_end(self, outputs: List[Any]):
         """ """
