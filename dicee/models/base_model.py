@@ -9,7 +9,7 @@ class BaseKGELightning(pl.LightningModule):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.training_step_outputs = []
-        fdf
+        
 
     def mem_of_model(self) -> Dict:
         """ Size of model in MB and number of params"""
