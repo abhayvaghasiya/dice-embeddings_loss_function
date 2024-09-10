@@ -36,18 +36,17 @@ class BaseKGELightning(pl.LightningModule):
         return loss_batch
 
     def loss_function(self, yhat_batch: torch.FloatTensor, y_batch: torch.FloatTensor):
-        """
+        # Create weights based on the labels
+        weights = torch.where(y_batch == 1, 0.8, 0.2)
+        
+        # Assuming use of BCEWithLogitsLoss that allows for dynamically setting weights per batch
+        loss_function = torch.nn.BCEWithLogitsLoss(reduction='none')
 
-        Parameters
-        ----------
-        yhat_batch
-        y_batch
+        losses = loss_function(yhat_batch, y_batch)
+        
+        weighted_losses = losses * weights  # Apply weights
 
-        Returns
-        -------
-
-        """
-        return self.loss(yhat_batch, y_batch)
+        return weighted_losses.mean()  # Return the mean loss after weighting
 
     def on_train_epoch_end(self, *args, **kwargs):
         if len(args) >= 1:
