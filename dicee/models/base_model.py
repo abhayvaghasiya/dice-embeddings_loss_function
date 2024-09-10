@@ -37,7 +37,7 @@ class BaseKGELightning(pl.LightningModule):
 
     def loss_function(self, yhat_batch: torch.FloatTensor, y_batch: torch.FloatTensor):
         # Create weights based on the labels
-        weights = torch.where(y_batch == 1, 0.8, 0.2)
+        weights = torch.where(y_batch == 1, 0.9, 0.1)
         
         # Assuming use of BCEWithLogitsLoss that allows for dynamically setting weights per batch
         loss_function = torch.nn.BCEWithLogitsLoss(reduction='none')
