@@ -1,3 +1,4 @@
+import pickle
 from typing import List, Any, Tuple, Union, Dict
 import lightning as pl
 import numpy as np
@@ -9,23 +10,7 @@ class BaseKGELightning(pl.LightningModule):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.training_step_outputs = []
-
-        # Directly set the score file path
-        self.score_file_path = '/Users/abhayvaghasiya/Desktop/WORK/UMLS_new_train/scores_modified_2.txt'
-
-        # Load the scores from the file
-        self.scores = self.load_scores(self.score_file_path)
-
-    def load_scores(self, score_file_path):
-        with open(score_file_path, 'r') as file:
-            scores = [float(line.strip()) for line in file.readlines()]
-        return scores
-
-    def get_score(self, index):
-        if index < len(self.scores):
-            return self.scores[index]
-        else:
-            raise IndexError("Index out of range for score lookup.")
+        
 
     def mem_of_model(self) -> Dict:
         """ Size of model in MB and number of params"""
@@ -36,55 +21,46 @@ class BaseKGELightning(pl.LightningModule):
         buffer_size = 0
         for buffer in self.buffers():
             buffer_size += buffer.nelement() * buffer.element_size()
-        return {'EstimatedSizeMB': (num_params + buffer_size) / 1024 ** 2, 'NumParam': num_params}
+        return {'EstimatedSizeMB': (num_params + buffer_size) / 1024 ** 2, 'NumParam': num_params}    
 
     def training_step(self, batch, batch_idx=None):
-        x_batch, y_batch = batch  # Unpack the batch assuming it contains x_batch and y_batch
+        x_batch, y_batch = batch
         
-        # Generate tuple indices based on batch index and batch size
-        tuple_indices = torch.arange(batch_idx * len(x_batch), (batch_idx + 1) * len(x_batch)).to(x_batch.device)
+        # Print the x_batch and y_batch for debugging
+        print(f"x_batch at batch index {batch_idx}: {x_batch}")
+        print(f"y_batch (one-hot encoded) at batch index {batch_idx}: {y_batch}")
         
+        # Assuming x_batch contains [head_index, relation_index]
+        head_indices, relation_indices = x_batch[:, 0], x_batch[:, 1]
+
+        # Extract the tail indices from y_batch (handling multi-label cases with multiple ones)
+        tail_indices = [torch.nonzero(y).squeeze().tolist() for y in y_batch]
+
+        # Combine the head, relation, and tail indices into a tuple
+        for head, relation, tails in zip(head_indices, relation_indices, tail_indices):
+            print(f"Head: {head.item()}, Relation: {relation.item()}, Tails: {tails}")
+
         yhat_batch = self.forward(x_batch)
-        loss_batch = self.loss_function(yhat_batch, y_batch, tuple_indices)
+        loss_batch = self.loss_function(yhat_batch, y_batch)
         self.training_step_outputs.append(loss_batch.item())
-        self.log("loss",
-                 value=loss_batch,
-                 on_step=True,
-                 on_epoch=True,
-                 prog_bar=True,
-                 sync_dist=True,
-                 logger=False)
+
+        # Log loss
+        self.log("loss", value=loss_batch, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True, logger=False)
         return loss_batch
 
-    def loss_function(self, yhat_batch: torch.FloatTensor, y_batch: torch.FloatTensor, tuple_indices: torch.LongTensor):
-        criterion = torch.nn.BCEWithLogitsLoss(reduction='none')
-        loss = criterion(yhat_batch, y_batch)
+    def loss_function(self, yhat_batch: torch.FloatTensor, y_batch: torch.FloatTensor):
+        """
 
-        # Get weights based on the score file using the tuple indices
-        weights_positive = torch.FloatTensor([self.get_score(idx.item()) for idx in tuple_indices]).to(y_batch.device)
-        
-        # Ensure the shape matches y_batch
-        # If y_batch is a 2D tensor, reshape weights_positive accordingly
-        if len(y_batch.shape) > 1:
-            weights_positive = weights_positive.unsqueeze(1).expand_as(y_batch)
+        Parameters
+        ----------
+        yhat_batch
+        y_batch
 
-        # Calculate weights for negative samples as 1 - positive weights
-        weights_negative = 1 - weights_positive
+        Returns
+        -------
 
-        # Apply weights based on whether the sample is positive or negative
-        sample_weights = torch.where(
-            y_batch == 1,
-            weights_positive,
-            weights_negative
-        )
-
-        # Apply the weights to the loss
-        weighted_loss = sample_weights * loss
-        
-        # Calculate the mean of the weighted loss
-        mean_weighted_loss = weighted_loss.mean()
-
-        return mean_weighted_loss
+        """
+        return self.loss(yhat_batch, y_batch)
 
     def on_train_epoch_end(self, *args, **kwargs):
         if len(args) >= 1:
