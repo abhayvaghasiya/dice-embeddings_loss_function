@@ -1,4 +1,3 @@
-import pickle
 from typing import List, Any, Tuple, Union, Dict
 import lightning as pl
 import numpy as np
@@ -7,60 +6,83 @@ from torch import nn
 from torch.nn import functional as F
 
 class BaseKGELightning(pl.LightningModule):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, default_score: float = 0.1, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.training_step_outputs = []
         
+        # Hard-coded path to matched_tuples.txt
+        self.matched_tuples_file = "/Users/abhayvaghasiya/Desktop/WORK/matched_tuples.txt"
+        
+        self.matched_tuples = self.load_matched_tuples(self.matched_tuples_file)
+        self.default_score = default_score
+
+    def load_matched_tuples(self, file_path: str) -> Dict[tuple, float]:
+        matched_tuples = {}
+        with open(file_path, 'r') as f:
+            for line in f:
+                tuple_str, score_str = line.strip().split('\t')
+                tuple_values = tuple(map(int, tuple_str.strip('[]').split(', ')))
+                score = float(score_str)
+                matched_tuples[tuple_values] = score
+        return matched_tuples
 
     def mem_of_model(self) -> Dict:
-        """ Size of model in MB and number of params"""
-        # https://discuss.pytorch.org/t/finding-model-size/130275/2
-        # (2) Store NumParam and EstimatedSizeMB
         num_params = sum(p.numel() for p in self.parameters())
-        # Not quite sure about EstimatedSizeMB ?
-        buffer_size = 0
-        for buffer in self.buffers():
-            buffer_size += buffer.nelement() * buffer.element_size()
-        return {'EstimatedSizeMB': (num_params + buffer_size) / 1024 ** 2, 'NumParam': num_params}    
+        buffer_size = sum(b.nelement() * b.element_size() for b in self.buffers())
+        return {'EstimatedSizeMB': (num_params + buffer_size) / 1024 ** 2, 'NumParam': num_params}
 
     def training_step(self, batch, batch_idx=None):
         x_batch, y_batch = batch
         
-        # Print the x_batch and y_batch for debugging
-        print(f"x_batch at batch index {batch_idx}: {x_batch}")
         print(f"y_batch (one-hot encoded) at batch index {batch_idx}: {y_batch}")
         
-        # Assuming x_batch contains [head_index, relation_index]
         head_indices, relation_indices = x_batch[:, 0], x_batch[:, 1]
-
-        # Extract the tail indices from y_batch (handling multi-label cases with multiple ones)
         tail_indices = [torch.nonzero(y).squeeze().tolist() for y in y_batch]
 
-        # Combine the head, relation, and tail indices into a tuple
         for head, relation, tails in zip(head_indices, relation_indices, tail_indices):
             print(f"Head: {head.item()}, Relation: {relation.item()}, Tails: {tails}")
 
         yhat_batch = self.forward(x_batch)
-        loss_batch = self.loss_function(yhat_batch, y_batch)
+        loss_batch = self.loss_function(yhat_batch, y_batch, x_batch)
         self.training_step_outputs.append(loss_batch.item())
 
-        # Log loss
         self.log("loss", value=loss_batch, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True, logger=False)
         return loss_batch
 
-    def loss_function(self, yhat_batch: torch.FloatTensor, y_batch: torch.FloatTensor):
-        """
-
-        Parameters
-        ----------
-        yhat_batch
-        y_batch
-
-        Returns
-        -------
-
-        """
+    def loss_function(self, yhat_batch: torch.FloatTensor, y_batch: torch.FloatTensor, x_batch: torch.LongTensor):
+        self.modify_y_batch(y_batch, x_batch)
         return self.loss(yhat_batch, y_batch)
+
+    def modify_y_batch(self, y_batch: torch.FloatTensor, x_batch: torch.LongTensor):
+        original_y_batch = y_batch.clone()
+        y_batch.fill_(self.default_score)
+        
+        print("Original y_batch:")
+        print(np.array2string(original_y_batch.cpu().numpy(), threshold=np.inf, max_line_width=np.inf))
+        
+        for i, (head, relation) in enumerate(x_batch):
+            head, relation = head.item(), relation.item()
+            tail_indices = torch.nonzero(original_y_batch[i]).squeeze()
+            
+            if tail_indices.dim() == 0:
+                tail_indices = [tail_indices.item()]
+            else:
+                tail_indices = tail_indices.tolist()
+            
+            print(f"Processing item {i}, head: {head}, relation: {relation}, tail indices: {tail_indices}")
+            
+            for tail in tail_indices:
+                tuple_key = (head, relation, tail)
+                if tuple_key in self.matched_tuples:
+                    score = self.matched_tuples[tuple_key]
+                    y_batch[i, tail] = score
+                    print(f"Tuple {tuple_key} found, score: {score}")
+                else:
+                    y_batch[i, tail] = 0.9
+                    print(f"Tuple {tuple_key} not found, setting score to 0.9")
+        
+        print("Modified y_batch:")
+        print(np.array2string(y_batch.cpu().numpy(), threshold=np.inf, max_line_width=np.inf))
 
     def on_train_epoch_end(self, *args, **kwargs):
         if len(args) >= 1:
