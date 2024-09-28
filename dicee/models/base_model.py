@@ -1,3 +1,4 @@
+import pickle
 from typing import List, Any, Tuple, Union, Dict
 import lightning as pl
 import numpy as np
@@ -83,6 +84,7 @@ class BaseKGELightning(pl.LightningModule):
         
         print("Modified y_batch:")
         print(np.array2string(y_batch.cpu().numpy(), threshold=np.inf, max_line_width=np.inf))
+
 
     def on_train_epoch_end(self, *args, **kwargs):
         if len(args) >= 1:
