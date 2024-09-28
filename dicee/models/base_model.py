@@ -34,14 +34,6 @@ class BaseKGELightning(pl.LightningModule):
 
     def training_step(self, batch, batch_idx=None):
         x_batch, y_batch = batch
-        
-        print(f"y_batch (one-hot encoded) at batch index {batch_idx}: {y_batch}")
-        
-        head_indices, relation_indices = x_batch[:, 0], x_batch[:, 1]
-        tail_indices = [torch.nonzero(y).squeeze().tolist() for y in y_batch]
-
-        for head, relation, tails in zip(head_indices, relation_indices, tail_indices):
-            print(f"Head: {head.item()}, Relation: {relation.item()}, Tails: {tails}")
 
         yhat_batch = self.forward(x_batch)
         loss_batch = self.loss_function(yhat_batch, y_batch, x_batch)
@@ -58,9 +50,6 @@ class BaseKGELightning(pl.LightningModule):
         original_y_batch = y_batch.clone()
         y_batch.fill_(self.default_score)
         
-        print("Original y_batch:")
-        print(np.array2string(original_y_batch.cpu().numpy(), threshold=np.inf, max_line_width=np.inf))
-        
         for i, (head, relation) in enumerate(x_batch):
             head, relation = head.item(), relation.item()
             tail_indices = torch.nonzero(original_y_batch[i]).squeeze()
@@ -69,21 +58,14 @@ class BaseKGELightning(pl.LightningModule):
                 tail_indices = [tail_indices.item()]
             else:
                 tail_indices = tail_indices.tolist()
-            
-            print(f"Processing item {i}, head: {head}, relation: {relation}, tail indices: {tail_indices}")
-            
+                
             for tail in tail_indices:
                 tuple_key = (head, relation, tail)
                 if tuple_key in self.matched_tuples:
                     score = self.matched_tuples[tuple_key]
                     y_batch[i, tail] = score
-                    print(f"Tuple {tuple_key} found, score: {score}")
                 else:
                     y_batch[i, tail] = 0.9
-                    print(f"Tuple {tuple_key} not found, setting score to 0.9")
-        
-        print("Modified y_batch:")
-        print(np.array2string(y_batch.cpu().numpy(), threshold=np.inf, max_line_width=np.inf))
 
 
     def on_train_epoch_end(self, *args, **kwargs):
