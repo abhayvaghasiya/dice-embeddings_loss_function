@@ -12,7 +12,7 @@ class BaseKGELightning(pl.LightningModule):
         self.training_step_outputs = []
         
         # Hard-coded path to matched_tuples.txt
-        self.matched_tuples_file = "/Users/abhayvaghasiya/Desktop/WORK/matched_tuples.txt"
+        self.matched_tuples_file = "/Users/abhayvaghasiya/Desktop/WORK/Without_coppel_Pi_score/WN18RR/PI_score_OUTPUT_file_WN18RR_0.1-0.9/0.0/matched_tuples.txt"
         
         self.matched_tuples = self.load_matched_tuples(self.matched_tuples_file)
         self.default_score = default_score
