@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Dataset directory
-dataset_dir="/Users/abhayvaghasiya/Desktop/WORK/Datasets_Perturbed_PI/WN18RR/0.0/WN18RR"
-output_dir="/Users/abhayvaghasiya/Desktop/WORK/Without_coppel_Pi_score/WN18RR/OUTPUT_file_WN18RR_PI_score_0.1-0.9"
+dataset_dir="/Users/abhayvaghasiya/Desktop/WORK/Datasets_Perturbed_PI/UMLS/0.0/UMLS"
+output_dir="/Users/abhayvaghasiya/Desktop/WORK/Without_coppel_Pi_score/UMLS_2/OUTPUT_file_UMLS_PI_score_0.1-0.9"
 model_list=("ComplEx" "Pykeen_MuRE" "DistMult" "Keci" "QMult")
 embedding_dim=32
 num_epochs=100
