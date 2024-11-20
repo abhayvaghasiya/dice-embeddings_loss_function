@@ -5,6 +5,7 @@ import pytorch_lightning as pl
 from typing import List, Tuple, Union
 from .static_preprocess_funcs import mapping_from_first_two_cols_to_third
 from .static_funcs import timeit, load_pickle
+from typing import Dict
 
 
 @timeit
@@ -337,11 +338,13 @@ class KvsAll(torch.utils.data.Dataset):
         assert len(self.train_data) == len(self.train_target)
         return len(self.train_data)
     
-    def load_matched_tuples(self, file_path: str):
+    def load_matched_tuples(self, file_path: str) -> Dict[tuple, float]:
         matched_tuples = {}
         with open(file_path, 'r') as f:
             for line in f:
+                # Split each line by tab
                 tuple_str, score_str = line.strip().split('\t')
+                # Convert `[5, 5, 85]` to a tuple `(5, 5, 85)`
                 tuple_values = tuple(map(int, tuple_str.strip('[]').split(', ')))
                 score = float(score_str)
                 matched_tuples[tuple_values] = score
@@ -351,11 +354,38 @@ class KvsAll(torch.utils.data.Dataset):
         # 1. Initialize a vector of output.
         y_vec = torch.zeros(self.target_dim)
         y_vec[self.train_target[idx]] = 1.0
-
+    
+        # Apply label smoothing if needed.
         if self.label_smoothing_rate:
             y_vec = y_vec * (1 - self.label_smoothing_rate) + (1 / y_vec.size(0))
+    
+        # Modify y_vec using scores from matched tuples.
+        self.modify_y_vec(y_vec, self.train_data[idx])
+        print(f"Modified y_vec for tuple {self.train_data[idx].tolist()} with target tails {self.train_target[idx]}: {y_vec.tolist()}")
+    
+        # Return the modified y_vec along with train_data[idx]
         return self.train_data[idx], y_vec
 
+    def modify_y_vec(self, y_vec: torch.FloatTensor, data_tuple):
+        head, relation = data_tuple
+        # Find indices where y_vec values are equal or above 0.9
+        tail_indices = (y_vec >= 0.9).nonzero(as_tuple=True)[0]
+
+        unmatched_count = 0
+        matched_count = 0
+        for tail in tail_indices:
+            tuple_key = (head.item(), relation.item(), tail.item())
+            if tuple_key in self.matched_tuples:
+                y_vec[tail] = self.matched_tuples[tuple_key]
+                matched_count += 1  # Increment matched count
+            else:
+                y_vec[tail] = 0.9  # Set to 0.9 if no specific score is found
+                unmatched_count += 1
+                print(f"Unmatched tuple: {tuple_key}")
+
+        # Print matched and unmatched counts for debugging
+        print(f"Matched tuples count: {matched_count}")
+        print(f"Unmatched tuples count: {unmatched_count}")
 
 class AllvsAll(torch.utils.data.Dataset):
     """ Creates a dataset for AllvsAll training by inheriting from torch.utils.data.Dataset.
