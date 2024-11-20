@@ -296,6 +296,8 @@ class KvsAll(torch.utils.data.Dataset):
         self.train_target = None
         self.label_smoothing_rate = torch.tensor(label_smoothing_rate)
         self.collate_fn = None
+        self.matched_tuples_file = "/Users/abhayvaghasiya/Desktop/WORK/Without_coppel_Pi_score/UMLS_PI_score_PI_score/0.1-0.9/0.01/matched_tuples.txt"
+        self.matched_tuples = self.load_matched_tuples(self.matched_tuples_file)
 
         # (1) Create a dictionary of training data pints
         # Either from tuple of entities or tuple of an entity and a relation
@@ -334,6 +336,16 @@ class KvsAll(torch.utils.data.Dataset):
     def __len__(self):
         assert len(self.train_data) == len(self.train_target)
         return len(self.train_data)
+    
+    def load_matched_tuples(self, file_path: str):
+        matched_tuples = {}
+        with open(file_path, 'r') as f:
+            for line in f:
+                tuple_str, score_str = line.strip().split('\t')
+                tuple_values = tuple(map(int, tuple_str.strip('[]').split(', ')))
+                score = float(score_str)
+                matched_tuples[tuple_values] = score
+        return matched_tuples
 
     def __getitem__(self, idx):
         # 1. Initialize a vector of output.
@@ -424,11 +436,11 @@ class AllvsAll(torch.utils.data.Dataset):
         existing_indices = self.train_target[idx]
         if len(existing_indices) > 0:
             y_vec[self.train_target[idx]] = 1.0
-
+        
         if self.label_smoothing_rate:
             y_vec = y_vec * (1 - self.label_smoothing_rate) + (1 / y_vec.size(0))
         return self.train_data[idx], y_vec
-
+        
 
 class KvsSampleDataset(torch.utils.data.Dataset):
     """
